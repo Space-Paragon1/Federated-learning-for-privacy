@@ -1,0 +1,104 @@
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# =========================
+# Jupyter / Experiments
+# =========================
+.ipynb_checkpoints/
+*.ipynb
+
+# =========================
+# ML / Experiment Artifacts
+# =========================
+# Model checkpoints
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.h5
+*.joblib
+*.pkl
+
+# Logs and experiment outputs
+logs/
+runs/
+wandb/
+
+# Plots / figures
+figures/
+plots/
+*.png
+*.jpg
+*.svg
+*.pdf
+
+# =========================
+# Data
+# =========================
+# Generated or intermediate data (keep generator scripts only)
+data/**/students.csv
+data/**/processed/
+data/**/splits/
+data/**/cache/
+
+# Allow README or generator scripts
+!data/**/README.md
+!data/**/generate.py
+
+# =========================
+# Config Overrides
+# =========================
+*.local.yaml
+*.local.yml
+.env
+.env.*
+
+# =========================
+# OS / Editor
+# =========================
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# macOS
+.DS_Store
+
+# Linux
+*~
+
+# VS Code
+.vscode/
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# PyCharm / JetBrains
+.idea/
+
+# =========================
+# Misc
+# =========================
+# Temporary files
+*.tmp
+*.log
+*.swp
+
+# Coverage / Testing
+.coverage
+htmlcov/
+pytest_cache/
