@@ -1,0 +1,7 @@
+{
+  "n_clients":20,
+  "students_per_client":300,
+  "n_rows":6000,
+  "seed":42,
+  "label_name":"at_risk"
+}
