@@ -1,0 +1,15 @@
+# DP-FedAvg configuration  (epsilon ~5-10 depending on rounds)
+rounds: 30
+client_frac: 0.5
+dropout: 0.0
+local_steps: 200
+lr: 0.05
+l2: 0.001
+seed: 42
+aggregator: fedavg
+
+dp:
+  enabled: true
+  noise_multiplier: 1.1   # sigma = noise_multiplier x max_grad_norm
+  max_grad_norm: 1.0      # L2 clipping threshold C
+  target_delta: 1.0e-5    # delta for (epsilon, delta)-DP guarantee
