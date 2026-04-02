@@ -1,5 +1,19 @@
+# Core scientific stack
 numpy>=1.24.0
 pandas>=2.0.0
-matplotlib>=3.7.0
-pyyaml>=6.0
 scipy>=1.10.0
+
+# Visualisation
+matplotlib>=3.7.0
+plotly>=5.18.0          # interactive HTML dashboard + 3D Pareto plots
+
+# Configuration
+pyyaml>=6.0
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0       # coverage reports
+
+# Optional — install for richer experiment tracking
+# mlflow>=2.10.0         # experiment tracking (optional)
+# scikit-learn>=1.3.0    # alternative metrics, grid search (optional)

@@ -20,13 +20,14 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from clients.local_train import LRParams, local_train_logreg
+from clients.local_train import LRParams, local_train_logreg, local_train_fedprox
 from server.aggregator import ClientUpdate, aggregate
 from server.scheduler import schedule_round
 from metrics.utility import binary_classification_metrics
 from metrics.fairness import per_client_f1
 from metrics.systems import RoundSystemMetrics, compute_system_summary
 from privacy.dp import DPConfig, PrivacyAccountant, clip_update, apply_dp_noise
+from privacy.compression import CompressionConfig, compress_params, compressed_bytes
 
 
 # ---------------------------------------------------------------------------
@@ -104,8 +105,10 @@ class FedConfig:
     lr: float = 0.05
     l2: float = 1e-3
     seed: int = 42
-    aggregator: str = "fedavg"      # fedavg | coord_median | trimmed_mean | krum
-    dp: Optional[DPConfig] = None   # None = no differential privacy
+    aggregator: str = "fedavg"                # fedavg | coord_median | trimmed_mean | krum
+    dp: Optional[DPConfig] = None             # None = no differential privacy
+    fedprox_mu: float = 0.0                   # 0 = standard FedAvg; >0 activates FedProx
+    compression: Optional[CompressionConfig] = None  # None = no compression
 
 
 # ---------------------------------------------------------------------------
@@ -187,10 +190,19 @@ def run_federated(
         updates: List[ClientUpdate] = []
         for cid in sched.survivors:
             x_c, y_c = clients[cid]
-            new_params = local_train_logreg(
-                x_c, y_c, global_params,
-                lr=cfg.lr, local_steps=cfg.local_steps, l2=cfg.l2,
-            )
+
+            # Local training: FedProx (mu > 0) or standard FedAvg (mu = 0)
+            if cfg.fedprox_mu > 0.0:
+                new_params = local_train_fedprox(
+                    x_c, y_c, global_params, global_params,
+                    mu=cfg.fedprox_mu,
+                    lr=cfg.lr, local_steps=cfg.local_steps, l2=cfg.l2,
+                )
+            else:
+                new_params = local_train_logreg(
+                    x_c, y_c, global_params,
+                    lr=cfg.lr, local_steps=cfg.local_steps, l2=cfg.l2,
+                )
 
             # DP: clip each client's update delta before aggregation
             if dp_cfg.enabled:
@@ -202,6 +214,10 @@ def run_federated(
                     w=global_params.w + delta.w,
                     b=global_params.b + delta.b,
                 )
+
+            # Gradient compression: quantise update before upload
+            if cfg.compression is not None and cfg.compression.enabled:
+                new_params = compress_params(new_params, cfg.compression, rng)
 
             updates.append(ClientUpdate(params=new_params, n_samples=len(x_c)))
 
@@ -229,10 +245,14 @@ def run_federated(
         }
         fair = per_client_f1(client_ytrue, client_ypred)
 
-        # Communication cost
+        # Communication cost (account for compression on upload)
         model_bytes = params_bytes(global_params)
         bytes_bc = model_bytes * len(sched.selected)
-        bytes_up = model_bytes * len(sched.survivors)
+        raw_up = model_bytes * len(sched.survivors)
+        if cfg.compression is not None and cfg.compression.enabled:
+            bytes_up = compressed_bytes(raw_up, cfg.compression)
+        else:
+            bytes_up = raw_up
 
         system_metrics.append(RoundSystemMetrics(
             round_num=r + 1,
@@ -314,6 +334,9 @@ def run_federated(
             "noise_multiplier": dp_cfg.noise_multiplier if dp_cfg.enabled else None,
             "max_grad_norm": dp_cfg.max_grad_norm if dp_cfg.enabled else None,
             "target_delta": dp_cfg.target_delta if dp_cfg.enabled else None,
+            "fedprox_mu": cfg.fedprox_mu,
+            "compression_enabled": cfg.compression.enabled if cfg.compression else False,
+            "compression_bits": cfg.compression.bits if cfg.compression else None,
         },
         "per_round": per_round,
         "final": {
@@ -370,6 +393,10 @@ def main() -> None:
     p.add_argument("--noise_multiplier", type=float, default=1.1)
     p.add_argument("--max_grad_norm", type=float, default=1.0)
     p.add_argument("--target_delta", type=float, default=1e-5)
+    p.add_argument("--fedprox_mu", type=float, default=0.0,
+                   help="FedProx proximal coefficient (0 = disabled, uses FedAvg)")
+    p.add_argument("--compression_bits", type=int, default=0,
+                   help="QSGD compression bit-width (0 = disabled; e.g. 4 or 8)")
     args = p.parse_args()
 
     dp_cfg = None
@@ -379,6 +406,13 @@ def main() -> None:
             noise_multiplier=args.noise_multiplier,
             max_grad_norm=args.max_grad_norm,
             target_delta=args.target_delta,
+        )
+
+    comp_cfg = None
+    if args.compression_bits > 0:
+        comp_cfg = CompressionConfig(
+            enabled=True,
+            num_levels=2 ** args.compression_bits,
         )
 
     cfg = FedConfig(
@@ -391,6 +425,8 @@ def main() -> None:
         seed=args.seed,
         aggregator=args.aggregator,
         dp=dp_cfg,
+        fedprox_mu=args.fedprox_mu,
+        compression=comp_cfg,
     )
 
     run_federated(Path(args.csv), test_ratio=args.test_ratio, cfg=cfg, verbose=True)

@@ -102,3 +102,8 @@ Desktop.ini
 .coverage
 htmlcov/
 pytest_cache/
+.pytest_cache/
+
+# Dashboard / experiment outputs
+results/experiment_results.json
+results/dashboard.html

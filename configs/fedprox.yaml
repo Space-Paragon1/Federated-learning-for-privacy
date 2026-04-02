@@ -1,0 +1,36 @@
+# FedProx Configuration
+# Reference: Li et al. (2020) "Federated Optimization in Heterogeneous Networks"
+#
+# FedProx adds a proximal regularisation term to the local objective:
+#   min_w  F(w) + (mu/2) * ||w - w_global||^2
+#
+# This prevents local models from drifting too far from the global model during
+# multiple local SGD steps, improving convergence under non-IID data.
+#
+# When mu = 0, FedProx reduces to plain FedAvg.
+
+federation:
+  rounds: 30
+  client_frac: 0.5
+  dropout: 0.0
+  seed: 42
+
+local_training:
+  steps: 200
+  lr: 0.05
+  l2: 0.001
+  fedprox_mu: 0.01       # proximal coefficient; tune in [0.0001, 0.5]
+
+aggregation:
+  method: fedavg          # FedProx uses standard FedAvg aggregation server-side
+
+privacy:
+  dp_enabled: false       # FedProx can also be combined with DP
+  noise_multiplier: 1.1
+  max_grad_norm: 1.0
+  target_delta: 1.0e-5
+
+# Recommended mu values by heterogeneity level:
+#   Low heterogeneity  (IID data):     mu = 0.0001 – 0.001
+#   Moderate (non-IID, realistic):     mu = 0.01   – 0.05
+#   High heterogeneity (extreme skew): mu = 0.1    – 0.5

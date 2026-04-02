@@ -74,7 +74,11 @@ def _trapz_auc(y_true: np.ndarray, scores: np.ndarray) -> float:
         fprs.append(fp / neg)
     tprs.append(1.0)
     fprs.append(1.0)
-    return float(abs(np.trapz(tprs, fprs)))
+    # np.trapz was renamed to np.trapezoid in NumPy 2.0
+    try:
+        return float(abs(np.trapezoid(tprs, fprs)))
+    except AttributeError:
+        return float(abs(np.trapz(tprs, fprs)))
 
 
 # ---------------------------------------------------------------------------

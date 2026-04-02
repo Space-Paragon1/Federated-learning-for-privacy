@@ -407,6 +407,209 @@ def plot_robust_aggregation(
 # Master entry point
 # ---------------------------------------------------------------------------
 
+def plot_fedprox_vs_fedavg(
+    fedavg_result: dict,
+    fedprox_results: List[dict],
+    save_dir: Path,
+) -> None:
+    """Figure 8: FedProx vs FedAvg — fairness and utility at different mu values."""
+    if not fedprox_results:
+        return
+    _apply_style()
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+    fig.suptitle("FedProx vs FedAvg: Proximal Coefficient (μ) Effect",
+                 fontsize=14, fontweight="bold")
+
+    # FedAvg baseline
+    rounds_fa = [r["round"] for r in fedavg_result["per_round"]]
+    f1_fa = [r["f1"] for r in fedavg_result["per_round"]]
+    worst_fa = [r["worst_f1"] for r in fedavg_result["per_round"]]
+    axes[0].plot(rounds_fa, f1_fa, color=PALETTE["fedavg"], lw=2.0, label="FedAvg (μ=0)")
+    axes[1].plot(rounds_fa, worst_fa, color=PALETTE["fedavg"], lw=2.0, label="FedAvg (μ=0)")
+
+    colors = ["#E91E63", "#9C27B0", "#3F51B5", "#009688", "#FF9800", "#795548"]
+    for i, entry in enumerate(fedprox_results):
+        mu = entry.get("config", {}).get("fedprox_mu", "?")
+        pr = entry.get("per_round", [])
+        if not pr:
+            continue
+        c = colors[i % len(colors)]
+        label = f"FedProx μ={mu}"
+        axes[0].plot([r["round"] for r in pr], [r["f1"] for r in pr],
+                     lw=1.5, ls="--", color=c, label=label, alpha=0.85)
+        axes[1].plot([r["round"] for r in pr], [r["worst_f1"] for r in pr],
+                     lw=1.5, ls="--", color=c, label=label, alpha=0.85)
+
+    for ax, ylabel, title in zip(
+        axes,
+        ["Global F1-Score", "Worst-Client F1 (Fairness)"],
+        ["Global F1 vs Rounds", "Fairness (Worst-Client F1) vs Rounds"],
+    ):
+        ax.set_xlabel("Round")
+        ax.set_ylabel(ylabel)
+        ax.set_ylim(0, 1.05)
+        ax.set_title(title)
+        ax.legend(fontsize=8)
+
+    fig.tight_layout()
+    _save(fig, save_dir / "fig8_fedprox.png", "fedprox")
+
+
+def plot_compression_tradeoff(
+    fedavg_result: dict,
+    compression_results: List[dict],
+    save_dir: Path,
+) -> None:
+    """Figure 9: Compression — communication savings vs accuracy tradeoff."""
+    if not compression_results:
+        return
+    _apply_style()
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+    fig.suptitle("Gradient Compression (QSGD): Communication vs Accuracy",
+                 fontsize=14, fontweight="bold")
+
+    baseline_comm = fedavg_result.get("system", {}).get("total_comm_bytes", 1)
+    baseline_f1 = fedavg_result.get("final", {}).get("f1", 0)
+
+    bits_list, f1_list, savings_list = [], [], []
+    for entry in compression_results:
+        bits = entry.get("config", {}).get("compression_bits")
+        if bits is None:
+            continue
+        f1 = entry.get("final", {}).get("f1", 0)
+        comm = entry.get("system", {}).get("total_comm_bytes", baseline_comm)
+        savings = 1.0 - comm / baseline_comm if baseline_comm > 0 else 0.0
+        bits_list.append(bits)
+        f1_list.append(f1)
+        savings_list.append(savings * 100)
+
+    # Add FedAvg baseline
+    bits_list = [64] + bits_list  # float64 = 64-bit
+    f1_list = [baseline_f1] + f1_list
+    savings_list = [0.0] + savings_list
+
+    axes[0].plot(bits_list, f1_list, "o-", color=PALETTE["fedavg"], lw=2, ms=8)
+    axes[0].axhline(baseline_f1, color=PALETTE["fedavg"], lw=1, ls=":",
+                    label=f"Uncompressed F1={baseline_f1:.3f}")
+    axes[0].set_xlabel("Bit-Width (lower = more compressed)")
+    axes[0].set_ylabel("Final F1-Score")
+    axes[0].set_title("Accuracy vs Compression Level")
+    axes[0].set_xscale("log", base=2)
+    axes[0].legend(fontsize=9)
+
+    axes[1].bar(
+        [str(b) + "-bit" for b in bits_list[1:]],
+        savings_list[1:],
+        color=PALETTE["coord_median"], alpha=0.85,
+    )
+    axes[1].set_xlabel("Compression Scheme")
+    axes[1].set_ylabel("Communication Savings (%)")
+    axes[1].set_title("Bytes Saved vs Uncompressed FedAvg")
+
+    fig.tight_layout()
+    _save(fig, save_dir / "fig9_compression.png", "compression")
+
+
+def plot_gradient_leakage(
+    leakage_data: List[dict],
+    save_dir: Path,
+) -> None:
+    """Figure 10: Gradient Inversion Attack — leakage vs DP noise level."""
+    if not leakage_data:
+        return
+    _apply_style()
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+    fig.suptitle("Gradient Inversion Attack: Data Leakage vs DP Noise",
+                 fontsize=14, fontweight="bold")
+
+    noise = [e["dp_noise_std"] for e in leakage_data]
+    cos_sim = [e["mean_cosine_similarity"] for e in leakage_data]
+    sign_acc = [e["mean_sign_accuracy"] for e in leakage_data]
+    risk_colors = {"HIGH": PALETTE["dp_strong"],
+                   "MEDIUM": PALETTE["dp_medium"],
+                   "LOW": PALETTE["dp_weak"]}
+    point_colors = [risk_colors.get(e.get("reconstruction_risk", "HIGH"), "grey")
+                    for e in leakage_data]
+
+    for ax, vals, ylabel, title in zip(
+        axes,
+        [cos_sim, sign_acc],
+        ["Feature Cosine Similarity (1=perfect recovery)",
+         "Feature Sign Accuracy (0.5=random)"],
+        ["Gradient Inversion: Feature Recovery (Cosine Sim)",
+         "Gradient Inversion: Feature Direction Recovery"],
+    ):
+        ax.plot(noise, vals, color=PALETTE["fedavg"], lw=2, zorder=2)
+        for xi, yi, ci in zip(noise, vals, point_colors):
+            ax.scatter(xi, yi, color=ci, s=90, zorder=3, edgecolors="white", linewidths=1)
+        ax.axhline(0.0, color="grey", lw=1, ls=":", label="No correlation")
+        ax.set_xlabel("DP Noise σ (higher = stronger privacy)")
+        ax.set_ylabel(ylabel)
+        ax.set_title(title)
+        ax.set_ylim(-0.05, 1.05)
+        ax.legend(fontsize=8)
+
+    # Legend for risk colours
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(color=PALETTE["dp_strong"], label="HIGH risk (no DP)"),
+        Patch(color=PALETTE["dp_medium"], label="MEDIUM risk"),
+        Patch(color=PALETTE["dp_weak"], label="LOW risk (strong DP)"),
+    ]
+    fig.legend(handles=legend_elements, loc="lower center", ncol=3, fontsize=9,
+               bbox_to_anchor=(0.5, -0.02))
+    fig.tight_layout(rect=[0, 0.04, 1, 1])
+    _save(fig, save_dir / "fig10_gradient_leakage.png", "gradient_leakage")
+
+
+def plot_personalization(
+    personal_data: dict,
+    personal_sweep: List[dict],
+    save_dir: Path,
+) -> None:
+    """Figure 11: Personalization — per-client and sweep comparison."""
+    _apply_style()
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    fig.suptitle("Personalised FL: Local Fine-Tuning Gain", fontsize=14, fontweight="bold")
+
+    # Left: per-client bar comparison
+    if personal_data and personal_data.get("per_client"):
+        clients = personal_data["per_client"]
+        cids = [c["client_id"] for c in clients]
+        g_f1 = [c["global_f1"] for c in clients]
+        p_f1 = [c["personal_f1"] for c in clients]
+        x = np.arange(len(cids))
+        w = 0.4
+        axes[0].bar(x - w / 2, g_f1, w, color=PALETTE["fedavg"], alpha=0.85, label="Global model")
+        axes[0].bar(x + w / 2, p_f1, w, color="#00BCD4", alpha=0.85, label="Fine-tuned model")
+        axes[0].set_xticks(x)
+        axes[0].set_xticklabels([str(c) for c in cids], fontsize=7, rotation=45)
+        axes[0].set_xlabel("Client ID")
+        axes[0].set_ylabel("F1-Score")
+        axes[0].set_ylim(0, 1.05)
+        axes[0].set_title("Per-Client F1: Global vs Fine-Tuned")
+        axes[0].legend(fontsize=9)
+
+    # Right: sweep — mean improvement vs fine-tune steps
+    if personal_sweep:
+        steps = [r["fine_tune_steps"] for r in personal_sweep]
+        mean_g = [r["mean_global_f1"] for r in personal_sweep]
+        mean_p = [r["mean_personal_f1"] for r in personal_sweep]
+        axes[1].plot(steps, mean_g, "o--", color=PALETTE["fedavg"], lw=1.5, ms=7,
+                     label="Global F1 (fixed)")
+        axes[1].plot(steps, mean_p, "o-", color="#00BCD4", lw=2, ms=8,
+                     label="Fine-tuned F1")
+        axes[1].fill_between(steps, mean_g, mean_p, alpha=0.12, color="#00BCD4")
+        axes[1].set_xlabel("Fine-Tuning Steps (k)")
+        axes[1].set_ylabel("Mean F1-Score")
+        axes[1].set_ylim(0, 1.05)
+        axes[1].set_title("Mean F1 vs Fine-Tuning Steps")
+        axes[1].legend(fontsize=9)
+
+    fig.tight_layout()
+    _save(fig, save_dir / "fig11_personalization.png", "personalization")
+
+
 def generate_all_plots(all_results: dict, figures_dir: Path) -> None:
     if not HAS_MPL:
         print("matplotlib not installed. Install with: pip install matplotlib")
@@ -418,6 +621,11 @@ def generate_all_plots(all_results: dict, figures_dir: Path) -> None:
     dp_sweep = all_results.get("dp_fedavg_sweep", [])
     centralized = all_results.get("centralized")
     robust = all_results.get("robust_aggregation", {})
+    fedprox = all_results.get("fedprox_sweep", [])
+    compression = all_results.get("compression_sweep", [])
+    leakage = all_results.get("gradient_leakage", [])
+    personal = all_results.get("personalization", {})
+    personal_sweep = all_results.get("personalization_sweep", [])
 
     print(f"  Generating figures in {figures_dir}/")
 
@@ -451,6 +659,29 @@ def generate_all_plots(all_results: dict, figures_dir: Path) -> None:
             plot_robust_aggregation(robust, figures_dir)
     except Exception as e:
         print(f"  fig6 error: {e}")
+
+    try:
+        if fedprox:
+            plot_fedprox_vs_fedavg(fedavg, fedprox, figures_dir)
+    except Exception as e:
+        print(f"  fig8 error: {e}")
+
+    try:
+        if compression:
+            plot_compression_tradeoff(fedavg, compression, figures_dir)
+    except Exception as e:
+        print(f"  fig9 error: {e}")
+
+    try:
+        if leakage:
+            plot_gradient_leakage(leakage, figures_dir)
+    except Exception as e:
+        print(f"  fig10 error: {e}")
+
+    try:
+        plot_personalization(personal, personal_sweep, figures_dir)
+    except Exception as e:
+        print(f"  fig11 error: {e}")
 
     print("  All figures generated.")
 
